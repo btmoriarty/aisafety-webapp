@@ -184,6 +184,19 @@ user = current_user()
 if not user:
     st.title("🛰️ AI-Safety Outreach")
     st.caption("Invite-only. Sign in to continue.")
+    with st.expander("🔧 identity debug (temporary — for setup)"):
+        for attr in ("user", "experimental_user"):
+            obj = getattr(st, attr, None)
+            row = {"present": obj is not None}
+            try:
+                row["email_attr"] = getattr(obj, "email", "<no .email>")
+            except Exception as e:
+                row["email_attr"] = f"<err {e}>"
+            try:
+                row["as_dict"] = dict(obj) if obj is not None else None
+            except Exception as e:
+                row["as_dict"] = f"<err {e}>"
+            st.write(f"**st.{attr}**", row)
     st.info("This is the local prototype — enter any email to act as that user. "
             "In production you'd sign in with your invited Google account.")
     with st.form("dev_login"):
