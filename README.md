@@ -18,9 +18,15 @@ streamlit run app.py
 3. In the app's **Settings → Sharing**, set it **private** and add the emails of
    the people you invite. Only they can open it; `st.user.email` then identifies
    each user for data isolation.
-4. Swap the local `userdata.db` for a hosted DB (Supabase free Postgres) so
-   per-user data persists across restarts — connection string goes in Streamlit
-   **Secrets**. (Code change is localized to the storage helpers.)
+4. Add persistence (so data survives restarts) — create a free **Supabase**
+   project, copy its Postgres connection string, and paste it into the Streamlit
+   app's **Settings → Secrets** as:
+   ```toml
+   db_url = "postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres"
+   ```
+   With `db_url` set, the app uses Supabase automatically; without it, it falls
+   back to a local SQLite file (dev only — Streamlit's disk is ephemeral). No
+   code change needed; the storage layer (`store.py`) handles both.
 
 ## What's shared vs private
 - `researchers.db` — shared, read-only directory. **No emails, no personal data.**

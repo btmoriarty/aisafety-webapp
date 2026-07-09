@@ -20,10 +20,11 @@ import unicodedata
 import pandas as pd
 import streamlit as st
 
+import store   # per-user storage (Supabase in prod, local SQLite in dev)
+
 st.set_page_config(page_title="AI-Safety Outreach", page_icon="🛰️", layout="wide")
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(HERE, "researchers.db")       # shared, read-only, no PII
-USERDB = os.path.join(HERE, "userdata.db")         # per-user (prod: Supabase)
 
 
 def norm(s):
@@ -61,43 +62,26 @@ def load_core():
     return df
 
 
-def userdb():
-    con = sqlite3.connect(USERDB)
-    con.execute("""CREATE TABLE IF NOT EXISTS contacts(
-        user_email TEXT, name TEXT, name_norm TEXT, company TEXT,
-        position TEXT, email TEXT, source TEXT,
-        PRIMARY KEY (user_email, name_norm, company))""")
-    return con
-
-
 def import_linkedin_bytes(user, raw):
-    text = raw.decode("utf-8-sig", errors="replace")
-    lines = text.splitlines()
+    """Parse a LinkedIn Connections.csv and REPLACE the user's saved network."""
+    lines = raw.decode("utf-8-sig", errors="replace").splitlines()
     start = next((i for i, ln in enumerate(lines)
                   if "First Name" in ln and "Last Name" in ln), 0)
-    reader = csv.DictReader(lines[start:])
-    con = userdb()
-    n = 0
-    for row in reader:
+    rows = []
+    for row in csv.DictReader(lines[start:]):
         name = f"{(row.get('First Name') or '').strip()} {(row.get('Last Name') or '').strip()}".strip()
         if not name:
             continue
-        con.execute("INSERT OR REPLACE INTO contacts VALUES(?,?,?,?,?,?,?)",
-                    (user, name, norm(name), (row.get("Company") or "").strip(),
-                     (row.get("Position") or "").strip(),
-                     (row.get("Email Address") or "").strip().lower(), "linkedin"))
-        n += 1
-    con.commit()
-    con.close()
-    return n
+        rows.append({"name": name, "name_norm": norm(name),
+                     "company": (row.get("Company") or "").strip(),
+                     "position": (row.get("Position") or "").strip(),
+                     "email": (row.get("Email Address") or "").strip().lower(),
+                     "source": "linkedin"})
+    return store.replace_contacts(user, rows)
 
 
 def my_contacts(user):
-    con = userdb()
-    df = pd.read_sql_query("SELECT name,name_norm,company,position FROM contacts "
-                           "WHERE user_email=?", con, params=(user,))
-    con.close()
-    return df
+    return store.get_contacts(user)
 
 
 # ------------------------------------------------------------- auth gate
@@ -124,6 +108,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption(f"{len(core):,} researchers in the shared directory.")
+    st.caption(f"Storage: {store.backend()}")
 
 st.title("🛰️ AI-Safety Outreach")
 tab_dir, tab_net, tab_known = st.tabs(
@@ -171,6 +156,7 @@ with tab_net:
     st.caption("Private to you. Export from LinkedIn: Settings → Get a copy of "
                "your data → Connections. Then upload the CSV here.")
     up = st.file_uploader("Upload your LinkedIn Connections.csv", type="csv")
+    st.caption("Uploading replaces your saved network with the file's contents.")
     if up is not None and st.button("Import"):
         n = import_linkedin_bytes(user, up.getvalue())
         st.success(f"Imported {n} connections.")
@@ -180,10 +166,7 @@ with tab_net:
         st.dataframe(mine[["name", "company", "position"]].sort_values("name"),
                      hide_index=True, width="stretch", height=320)
         if st.button("Clear my network"):
-            con = userdb()
-            con.execute("DELETE FROM contacts WHERE user_email=?", (user,))
-            con.commit()
-            con.close()
+            store.clear_contacts(user)
             st.rerun()
 
 # ---- Tab 3: who I already know (per-user warm intros) ----
