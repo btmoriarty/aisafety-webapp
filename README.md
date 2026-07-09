@@ -35,19 +35,29 @@ streamlit run app.py
    back to a local SQLite file (dev only — Streamlit's disk is ephemeral). No
    code change needed; the storage layer (`store.py`) handles both.
 
-## Bridge index (maintainer step — makes "via a bridge" light up)
+## Bridge index (makes "via a bridge" light up)
 Bridge paths are a **pure local join** at request time: the shared core stores,
-for each top researcher, the names of their co-authors, and the app intersects
-that with each user's contacts. No OpenAlex calls per user → free at any scale.
+for each top researcher, the names of their co-authors (`target_coauthors`), and
+the app intersects that with each user's contacts. No OpenAlex calls per user →
+free at any scale. Co-author names are public (they're on the papers) — no PII.
 
-Building that index is a one-time (periodic) maintainer step:
+**How it gets filled (canonical):** the pipeline's nightly job builds this index
+incrementally — `warmpath.py precompute-targets` runs as a budget-paced tier and
+`snapshot.py export-core` carries `target_coauthors` into the snapshot. To publish
+a refresh to the live app, re-export the core into this repo and push:
 ```bash
-python precompute_coauthors.py --limit 500   # budget-aware; stops on OpenAlex 429, resumable
+# in the pipeline repo:
+./snapshot.py export-core -o /path/to/aisafety-webapp/researchers.db
+# then in this repo:
+git add researchers.db && git commit -m "refresh core + bridge index" && git push
 ```
-It fills a `target_coauthors` table inside `researchers.db`. Co-author names are
-public (they're on the papers) — no personal data. Re-run over several days if the
-daily OpenAlex budget runs out mid-way; commit the updated `researchers.db` to ship
-the index. Until it's populated, **direct** matches work and bridges simply show none.
+Streamlit Cloud redeploys on push. Until the index is populated, **direct** matches
+work and bridges simply show none.
+
+**Standalone fallback** (webapp-only, no pipeline): `python precompute_coauthors.py
+--limit 500` fills `target_coauthors` directly in this repo's `researchers.db`
+(budget-aware, resumable). Note a later `export-core` refresh overwrites it — the
+pipeline path is the durable source.
 
 ## What's shared vs private
 - `researchers.db` — shared, read-only directory + co-author index. **No emails, no personal data.**

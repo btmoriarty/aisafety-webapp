@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-precompute_coauthors.py — MAINTAINER step (not run by app users).
+precompute_coauthors.py — STANDALONE FALLBACK for filling the bridge index.
+
+CANONICAL path is the pipeline: `warmpath.py precompute-targets` (nightly) +
+`snapshot.py export-core`, which carries `target_coauthors` into this repo's
+researchers.db. Use THIS script only when you don't have the pipeline handy and
+want to fill the index directly on researchers.db. A later export-core refresh
+overwrites it — the pipeline is the durable source. See README ("Bridge index").
 
 For the top-ranked researchers, fetch their co-author NAMES from OpenAlex once
-and store them in the shared researchers.db. The web app then computes each
-user's warm-path bridges as a pure local join (their contacts ∩ a target's
-co-authors) — NO per-user OpenAlex calls, so it stays free at any number of users.
+and store them in researchers.db. The web app then computes each user's warm-path
+bridges as a pure local join (their contacts ∩ a target's co-authors) — NO
+per-user OpenAlex calls, so it stays free at any number of users.
 
 Co-author names are public (they're on the papers); no personal data.
 Budget-aware (stops on OpenAlex 429) and resumable.
