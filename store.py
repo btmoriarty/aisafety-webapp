@@ -82,3 +82,43 @@ def get_contacts(user):
 def clear_contacts(user):
     with engine().begin() as c:
         c.execute(sa.text("DELETE FROM contacts WHERE user_email=:u"), {"u": user})
+
+
+# ---------------------------------------------------------------- outreach CRM
+def _ensure_outreach(c):
+    c.execute(sa.text("""CREATE TABLE IF NOT EXISTS outreach(
+        user_email TEXT, target_id TEXT, target_name TEXT,
+        status TEXT, note TEXT, updated TEXT,
+        PRIMARY KEY (user_email, target_id))"""))
+
+
+def get_outreach(user):
+    """This user's outreach queue/CRM (private to them)."""
+    import pandas as pd
+    with engine().begin() as c:
+        _ensure_outreach(c)
+    with engine().connect() as c:
+        return pd.read_sql(
+            sa.text("SELECT target_id,target_name,status,note,updated FROM outreach "
+                    "WHERE user_email=:u ORDER BY updated DESC"),
+            c, params={"u": user})
+
+
+def set_outreach(user, target_id, target_name, status, note, when):
+    """Insert or update one tracked researcher (clear+insert = cross-DB upsert)."""
+    with engine().begin() as c:
+        _ensure_outreach(c)
+        c.execute(sa.text("DELETE FROM outreach WHERE user_email=:u AND target_id=:t"),
+                  {"u": user, "t": target_id})
+        c.execute(sa.text(
+            "INSERT INTO outreach(user_email,target_id,target_name,status,note,updated)"
+            " VALUES(:u,:t,:n,:s,:note,:w)"),
+            {"u": user, "t": target_id, "n": target_name,
+             "s": status, "note": note or "", "w": when})
+
+
+def remove_outreach(user, target_id):
+    with engine().begin() as c:
+        _ensure_outreach(c)
+        c.execute(sa.text("DELETE FROM outreach WHERE user_email=:u AND target_id=:t"),
+                  {"u": user, "t": target_id})

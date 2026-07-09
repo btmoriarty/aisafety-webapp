@@ -16,6 +16,7 @@ import os
 import re
 import csv
 import sqlite3
+import datetime
 import unicodedata
 import pandas as pd
 import streamlit as st
@@ -25,6 +26,26 @@ import store   # per-user storage (Supabase in prod, local SQLite in dev)
 st.set_page_config(page_title="AI-Safety Outreach", page_icon="🛰️", layout="wide")
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(HERE, "researchers.db")       # shared, read-only, no PII
+
+STATUSES = ["queued", "contacted", "replied", "meeting", "declined", "done"]
+
+# Rough emailing-law posture by ISO-2 country code (guidance, not legal advice).
+_EU_EEA = {"AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE",
+           "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL",
+           "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB", "CH"}
+
+
+def jurisdiction(country):
+    c = (country or "").upper()
+    if not c:
+        return "Check local rules"
+    if c in _EU_EEA:
+        return "GDPR — consent-first"
+    if c == "CA":
+        return "CASL — consent-first"
+    if c == "US":
+        return "CAN-SPAM — opt-out ok"
+    return "Check local rules"
 
 
 def norm(s):
@@ -60,6 +81,50 @@ def load_core():
     df["matched_topics"] = df["matched_topics"].fillna("")
     df["name_norm"] = df["name"].map(norm)
     return df
+
+
+@st.cache_data(show_spinner=False)
+def load_coauthors():
+    """Precomputed target -> co-author names (shared core, no PII). Empty until
+    precompute_coauthors.py has run. Bridges are then a pure local join."""
+    con = sqlite3.connect(CORE)
+    try:
+        df = pd.read_sql_query(
+            "SELECT target_id, coauthor_norm FROM target_coauthors "
+            "WHERE coauthor_norm <> ''", con)
+    except Exception:
+        df = pd.DataFrame(columns=["target_id", "coauthor_norm"])
+    con.close()
+    return df
+
+
+def warm_paths(core, mine):
+    """For each researcher, how the user can reach them:
+       'direct' (they're your contact) or 'bridge' (a contact co-authored w/ them).
+    Pure local joins — no OpenAlex at request time."""
+    known = set(mine["name_norm"])
+    by_norm = dict(zip(mine["name_norm"], mine["name"]))
+    direct = core[core["name_norm"].isin(known)].copy()
+    direct["path"] = "You know them directly"
+    direct["via"] = direct["name_norm"].map(by_norm)
+
+    co = load_coauthors()
+    bridges = pd.DataFrame()
+    if len(co):
+        hit = co[co["coauthor_norm"].isin(known)].copy()
+        if len(hit):
+            hit["via"] = hit["coauthor_norm"].map(by_norm)
+            # best (first) bridge contact per target
+            hit = hit.drop_duplicates("target_id")
+            b = core.merge(hit[["target_id", "via"]], left_on="id",
+                           right_on="target_id", how="inner")
+            b = b[~b["name_norm"].isin(known)]      # a direct match trumps a bridge
+            b["path"] = "Via " + b["via"]
+            bridges = b
+    cols = list(core.columns) + ["path", "via"]
+    out = pd.concat([direct.reindex(columns=cols), bridges.reindex(columns=cols)],
+                    ignore_index=True)
+    return out.sort_values("score", ascending=False)
 
 
 def import_linkedin_bytes(user, raw):
@@ -111,8 +176,9 @@ with st.sidebar:
     st.caption(f"Storage: {store.backend()}")
 
 st.title("🛰️ AI-Safety Outreach")
-tab_dir, tab_net, tab_known = st.tabs(
-    ["🔎 Researcher directory", "👥 My network", "🤝 Who I already know"])
+tab_dir, tab_net, tab_warm, tab_out = st.tabs(
+    ["🔎 Researcher directory", "👥 My network",
+     "🤝 Warm paths", "📋 My outreach"])
 
 # ---- Tab 1: shared directory (read-only) ----
 with tab_dir:
@@ -169,27 +235,82 @@ with tab_net:
             store.clear_contacts(user)
             st.rerun()
 
-# ---- Tab 3: who I already know (per-user warm intros) ----
-with tab_known:
-    st.subheader("Researchers you already know")
-    st.caption("AI-safety researchers who match someone in your LinkedIn network — "
-               "your warmest intros. (Name match; verify before reaching out.)")
+# ---- Tab 3: warm paths (direct + co-authorship bridges) ----
+with tab_warm:
+    st.subheader("Your warm paths in")
+    st.caption("AI-safety researchers you can reach — either you know them directly, "
+               "or one of your connections co-authored with them. (Name match; "
+               "verify before reaching out.)")
     mine = my_contacts(user)
     if not len(mine):
-        st.info("Upload your network in the **My network** tab to see this.")
+        st.info("Upload your network in the **My network** tab to light this up.")
     else:
-        known = set(mine["name_norm"])
-        hits = core[core["name_norm"].isin(known)].sort_values("score", ascending=False)
-        st.metric("Researchers you know", len(hits))
-        if len(hits):
+        warm = warm_paths(core, mine)
+        warm["jurisdiction"] = warm["country"].map(jurisdiction)
+        n_direct = int((warm["path"] == "You know them directly").sum())
+        n_bridge = len(warm) - n_direct
+        c1, c2 = st.columns(2)
+        c1.metric("Know directly", n_direct)
+        c2.metric("Via a bridge", n_bridge)
+        if not load_coauthors().shape[0]:
+            st.caption("ℹ️ Bridge paths appear once the shared co-authorship index is "
+                       "built (a maintainer step). Direct matches show now.")
+        if len(warm):
             st.dataframe(
-                hits[["score", "name", "institution_name", "country",
-                      "relevance_label", "matched_topics"]],
-                hide_index=True, width="stretch",
+                warm[["score", "name", "path", "institution_name", "country",
+                      "jurisdiction", "relevance_label", "matched_topics"]],
+                hide_index=True, width="stretch", height=420,
                 column_config={
                     "score": st.column_config.NumberColumn("AI-safety fit", format="%.1f"),
+                    "path": st.column_config.TextColumn("How you reach them", width="medium"),
                     "institution_name": st.column_config.TextColumn("Institution"),
+                    "country": st.column_config.TextColumn("Ctry", width="small"),
+                    "jurisdiction": st.column_config.TextColumn("Emailing rules", width="medium"),
+                    "relevance_label": st.column_config.TextColumn("Relevance", width="small"),
                 })
+            st.divider()
+            st.caption("Add someone to your outreach queue:")
+            pick = st.multiselect("Researchers to track",
+                                  options=list(warm["name"]), key="warm_pick")
+            if pick and st.button("Add to my outreach"):
+                now = datetime.datetime.utcnow().isoformat(timespec="seconds")
+                sel = warm[warm["name"].isin(pick)]
+                for _, r in sel.iterrows():
+                    store.set_outreach(user, r["id"], r["name"], "queued", "", now)
+                st.success(f"Added {len(sel)} to your outreach queue.")
+                st.rerun()
         else:
-            st.caption("No direct matches yet. (Bridge paths — a contact who "
-                       "co-authored with a target — come in the next phase.)")
+            st.caption("No warm paths yet.")
+
+# ---- Tab 4: my outreach (per-user CRM) ----
+with tab_out:
+    st.subheader("My outreach")
+    st.caption("Private to you. Track who you're reaching out to and where things stand.")
+    q = store.get_outreach(user)
+    if not len(q):
+        st.info("Nothing tracked yet. Add researchers from the **Warm paths** tab.")
+    else:
+        edit = q.rename(columns={"target_name": "name"})[["name", "status", "note"]].copy()
+        edited = st.data_editor(
+            edit, hide_index=True, width="stretch", key="out_editor",
+            column_config={
+                "name": st.column_config.TextColumn("Researcher", disabled=True),
+                "status": st.column_config.SelectboxColumn("Status", options=STATUSES),
+                "note": st.column_config.TextColumn("Note", width="large"),
+            })
+        c1, c2 = st.columns(2)
+        if c1.button("Save changes"):
+            now = datetime.datetime.utcnow().isoformat(timespec="seconds")
+            ids = list(q["target_id"])
+            names = list(q["target_name"])
+            for i in range(len(edited)):
+                store.set_outreach(user, ids[i], names[i],
+                                   edited.iloc[i]["status"],
+                                   edited.iloc[i]["note"], now)
+            st.success("Saved.")
+            st.rerun()
+        drop = c2.multiselect("Remove from queue", options=list(q["target_name"]))
+        if drop and c2.button("Remove selected"):
+            for _, r in q[q["target_name"].isin(drop)].iterrows():
+                store.remove_outreach(user, r["target_id"])
+            st.rerun()
