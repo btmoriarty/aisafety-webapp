@@ -28,7 +28,7 @@ import time
 import unicodedata
 
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "researchers.db")
-MAILTO = "btmoriarty@gmail.com"
+MAILTO = os.environ.get("OPENALEX_MAILTO", "anonymous@example.com")  # OpenAlex polite pool
 UA = "Mozilla/5.0"
 
 

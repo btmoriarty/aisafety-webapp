@@ -73,11 +73,34 @@ def current_user():
 
 
 # ------------------------------------------------------------------- data
+# The researcher directory + bridge index are PII-free but are NOT kept in this
+# (public) repo — they live in the same private DB as user data (Supabase in
+# prod). Locally, a gitignored researchers.db file is used for development.
+def _read_shared(sql, empty_cols):
+    """Read a shared table from Supabase (prod) or the local dev file. Returns an
+    empty frame if the directory hasn't been loaded yet (see publish_supabase.py)."""
+    try:
+        if store.backend().startswith("Supabase"):
+            return pd.read_sql(sql, store.engine())
+        if os.path.exists(CORE):
+            con = sqlite3.connect(CORE)
+            try:
+                return pd.read_sql_query(sql, con)
+            finally:
+                con.close()
+    except Exception:
+        pass
+    return pd.DataFrame(columns=empty_cols)
+
+
 @st.cache_data(show_spinner=False)
 def load_core():
-    con = sqlite3.connect(CORE)
-    df = pd.read_sql_query("SELECT * FROM researchers", con)
-    con.close()
+    df = _read_shared("SELECT * FROM researchers",
+                      ["id", "name", "institution_name", "country", "works",
+                       "citations", "matched_topics", "score", "orcid",
+                       "relevance_label"])
+    if df.empty:
+        return df
     df["matched_topics"] = df["matched_topics"].fillna("")
     df["name_norm"] = df["name"].map(norm)
     return df
@@ -85,17 +108,11 @@ def load_core():
 
 @st.cache_data(show_spinner=False)
 def load_coauthors():
-    """Precomputed target -> co-author names (shared core, no PII). Empty until
-    precompute_coauthors.py has run. Bridges are then a pure local join."""
-    con = sqlite3.connect(CORE)
-    try:
-        df = pd.read_sql_query(
-            "SELECT target_id, coauthor_norm FROM target_coauthors "
-            "WHERE coauthor_norm <> ''", con)
-    except Exception:
-        df = pd.DataFrame(columns=["target_id", "coauthor_norm"])
-    con.close()
-    return df
+    """Precomputed target -> co-author names (shared, no PII). Empty until the
+    bridge index is loaded. Bridges are then a pure local join."""
+    return _read_shared(
+        "SELECT target_id, coauthor_norm FROM target_coauthors "
+        "WHERE coauthor_norm <> ''", ["target_id", "coauthor_norm"])
 
 
 def warm_paths(core, mine):
@@ -174,6 +191,13 @@ with st.sidebar:
     st.divider()
     st.caption(f"{len(core):,} researchers in the shared directory.")
     st.caption(f"Storage: {store.backend()}")
+
+if core.empty:
+    st.title("🛰️ AI-Safety Outreach")
+    st.info("The researcher directory hasn't been loaded into this deployment yet. "
+            "If you're the maintainer, run the loader (`publish_supabase.py`) to "
+            "populate it. Otherwise, check back shortly.")
+    st.stop()
 
 st.title("🛰️ AI-Safety Outreach")
 tab_dir, tab_net, tab_warm, tab_out = st.tabs(

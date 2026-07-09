@@ -1,7 +1,7 @@
-# AI-Safety Outreach — walled-garden web app
+# AI-Safety Outreach — invite-only web app
 
 An invite-only, browser-based tool. Each user signs in and gets four tabs:
-- **Researcher directory** — the shared, read-only, ranked AI-safety directory (no PII).
+- **Researcher directory** — a shared, read-only, ranked AI-safety directory.
 - **My network** — upload your own LinkedIn Connections.csv (private to you).
 - **Warm paths** — researchers you can reach: *directly* (they're your contact) or
   via a *bridge* (a connection who co-authored with them), each with an emailing-law
@@ -12,61 +12,54 @@ An invite-only, browser-based tool. Each user signs in and gets four tabs:
 Every user's personal data is isolated by their login email. Built for a small
 trusted group (≤ ~10), free-tier hosting.
 
-## Status: Phase-1 prototype (local)
-Runnable locally with a dev sign-in and a local per-user store.
+## This repo is code-only
+No data lives here. The researcher directory and the co-author bridge index are
+**not** committed to this repo — they live in the app's private database
+(Supabase) alongside per-user data. So this repository is safe to make public:
+it contains application code only, no rankings and no personal data. Secrets live
+in Streamlit **Secrets**, never in the repo.
+
+## Run locally (dev)
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
+With no `db_url` configured, the app uses a local dev sign-in and reads the
+directory from a **gitignored** local `researchers.db` (if present), with per-user
+data in a local `userdata.db`. Both are dev-only and never committed.
 
-## Deploy (Phase 2) — private, invite-only, free
-1. Push this folder to a **private** GitHub repo.
-2. **share.streamlit.io → New app** → pick the repo + `app.py`.
-3. In the app's **Settings → Sharing**, set it **private** and add the emails of
-   the people you invite. Only they can open it; `st.user.email` then identifies
-   each user for data isolation.
-4. Add persistence (so data survives restarts) — create a free **Supabase**
-   project, copy its Postgres connection string, and paste it into the Streamlit
-   app's **Settings → Secrets** as:
-   ```toml
-   db_url = "postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres"
+## Deploy — private app, free
+1. **Database (Supabase):** create a free project → copy its Postgres connection
+   string (Project Settings → Database → Connection string → URI).
+2. **Load the directory into it** (maintainer step, from the data pipeline):
+   ```bash
+   DB_URL="postgresql://postgres:PW@db.PROJECT.supabase.co:5432/postgres" \
+       ./publish_supabase.py            # loads researchers + target_coauthors
    ```
-   With `db_url` set, the app uses Supabase automatically; without it, it falls
-   back to a local SQLite file (dev only — Streamlit's disk is ephemeral). No
-   code change needed; the storage layer (`store.py`) handles both.
+3. **Deploy the app:** share.streamlit.io → New app → this repo + `app.py`.
+4. **Point the app at Supabase:** app **Settings → Secrets**:
+   ```toml
+   db_url = "postgresql://postgres:PW@db.PROJECT.supabase.co:5432/postgres"
+   ```
+5. **Lock it down:** app **Settings → Sharing** → private → add invitees' emails.
+   Streamlit then provides `st.user.email`, which isolates each user's data.
 
-## Bridge index (makes "via a bridge" light up)
-Bridge paths are a **pure local join** at request time: the shared core stores,
-for each top researcher, the names of their co-authors (`target_coauthors`), and
-the app intersects that with each user's contacts. No OpenAlex calls per user →
-free at any scale. Co-author names are public (they're on the papers) — no PII.
+The app reads the shared directory/bridges from Supabase in production; per-user
+contacts and outreach are isolated by login email. The storage layer (`store.py`)
+selects Supabase when `db_url` is set, else the local dev file.
 
-**How it gets filled (canonical):** the pipeline's nightly job builds this index
-incrementally — `warmpath.py precompute-targets` runs as a budget-paced tier and
-`snapshot.py export-core` carries `target_coauthors` into the snapshot. To publish
-a refresh to the live app, re-export the core into this repo and push:
-```bash
-# in the pipeline repo:
-./snapshot.py export-core -o /path/to/aisafety-webapp/researchers.db
-# then in this repo:
-git add researchers.db && git commit -m "refresh core + bridge index" && git push
-```
-Streamlit Cloud redeploys on push. Until the index is populated, **direct** matches
-work and bridges simply show none.
+## Warm-path bridges
+Bridges are a **pure local join** at request time: for each top researcher the
+directory stores the names of their co-authors (`target_coauthors`), and the app
+intersects that with each user's contacts — no OpenAlex calls per user, free at
+any scale. Co-author names are public (they're on the papers); no PII.
 
-**Standalone fallback** (webapp-only, no pipeline): `python precompute_coauthors.py
---limit 500` fills `target_coauthors` directly in this repo's `researchers.db`
-(budget-aware, resumable). Note a later `export-core` refresh overwrites it — the
-pipeline path is the durable source.
-
-## What's shared vs private
-- `researchers.db` — shared, read-only directory + co-author index. **No emails, no personal data.**
-- Per-user contacts / outreach — private to each signed-in user (local `userdata.db`
-  in the prototype; Supabase in production).
+The index is built by the data pipeline (`warmpath.py precompute-targets`,
+budget-paced) and loaded into Supabase by `publish_supabase.py` on refresh. Until
+it's populated, **direct** matches work and bridges simply show none. A standalone
+`precompute_coauthors.py` can fill a local `researchers.db` for dev.
 
 ## Status
-- Phase 1 ✅ prototype (directory + network + who-you-know).
-- Phase 2 ✅ Supabase-ready per-user persistence (`store.py`).
-- Phase 3 ✅ warm-path bridges (precomputed co-authorship), per-user outreach CRM,
-  emailing-law posture per target. Bridge *data* fills in as `precompute_coauthors.py` runs.
-- Next: deploy private + invite allowlist; optional 2-hop bridges & tie-strength.
+- Directory + per-user network/outreach + warm-path bridges + emailing-law posture: ✅
+- Data kept out of the repo (Supabase-backed), app code-only: ✅
+- Next: optional 2-hop bridges & tie-strength.
