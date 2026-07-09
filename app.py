@@ -55,20 +55,33 @@ def norm(s):
 
 
 # ---------------------------------------------------------------- identity
-def current_user():
-    """Deployed private Streamlit -> st.user.email. Local -> dev sign-in."""
+def _email_of(obj):
+    if obj is None:
+        return None
     try:
-        u = getattr(st, "user", None)
-        if u is not None:
-            email = None
-            try:
-                email = u.email        # attribute form
-            except Exception:
-                email = (u.get("email") if hasattr(u, "get") else None)
-            if email:
-                return email
+        e = getattr(obj, "email", None)
+        if e:
+            return e
     except Exception:
         pass
+    try:
+        if hasattr(obj, "get"):
+            return obj.get("email")
+    except Exception:
+        pass
+    return None
+
+
+def current_user():
+    """Deployed private Streamlit provides the signed-in viewer's email via
+    st.user or st.experimental_user. Locally, fall back to the dev sign-in."""
+    for attr in ("user", "experimental_user"):
+        try:
+            e = _email_of(getattr(st, attr, None))
+            if e:
+                return e
+        except Exception:
+            pass
     return st.session_state.get("dev_user")
 
 
