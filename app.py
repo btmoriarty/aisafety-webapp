@@ -27,39 +27,6 @@ st.set_page_config(page_title="AI-Safety Outreach", page_icon="🛰️", layout=
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(HERE, "researchers.db")       # shared, read-only, no PII
 
-
-def _brand():
-    """Custom styling so it doesn't read as a stock Streamlit app."""
-    st.markdown("""<style>
-      #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"]{display:none !important;}
-      .block-container{padding-top:1.3rem;padding-bottom:2rem;max-width:1240px;}
-      .brandbar{background:linear-gradient(100deg,#161A2E,#212747);border-radius:16px;
-        padding:17px 24px;margin:0 0 16px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
-        box-shadow:0 14px 34px -22px rgba(20,26,60,.6);}
-      .brandbar .bt{font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em;}
-      .brandbar .bs{font-size:13.5px;color:#9BA3CC;font-style:italic;}
-      .brandbar .bd{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.12em;
-        color:#17B3A6;text-transform:uppercase;}
-      .stTabs [data-baseweb="tab-list"]{gap:2px;border-bottom:1px solid #E7EAF3;}
-      .stTabs [data-baseweb="tab"]{font-weight:600;font-size:14px;color:#6B7192;padding:8px 15px;}
-      .stTabs [aria-selected="true"]{color:#0E7C86 !important;}
-      .stButton button, .stDownloadButton button{border-radius:9px;font-weight:600;}
-      .stDownloadButton button{background:#EAF7F5;color:#0E7C86;border:1px solid #CDE6E2;}
-      .stDownloadButton button:hover{border-color:#17B3A6;color:#0E7C86;}
-      h1,h2,h3{color:#161A2E;letter-spacing:-.01em;}
-      [data-testid="stMetricValue"]{color:#0E7C86;font-weight:800;}
-      [data-testid="stSidebar"]{border-right:1px solid #E7EAF3;}
-    </style>""", unsafe_allow_html=True)
-
-
-def _header():
-    st.markdown('<div class="brandbar"><span class="bt">🛰️ AI-Safety Outreach</span>'
-                '<span class="bs">Warm intros to the researchers who matter</span>'
-                '<span class="bd">invite-only</span></div>', unsafe_allow_html=True)
-
-
-_brand()
-
 STATUSES = ["queued", "contacted", "replied", "meeting", "declined", "done"]
 
 # Rough emailing-law posture by ISO-2 country code (guidance, not legal advice).
@@ -262,7 +229,7 @@ if core.empty:
             "populate it. Otherwise, check back shortly.")
     st.stop()
 
-_header()
+st.title("🛰️ AI-Safety Outreach")
 tab_dir, tab_net, tab_warm, tab_out = st.tabs(
     ["🔎 Researcher directory", "👥 My network",
      "🤝 Warm paths", "📋 My outreach"])
@@ -271,26 +238,13 @@ tab_dir, tab_net, tab_warm, tab_out = st.tabs(
 with tab_dir:
     st.subheader("Researcher directory")
     st.caption("Shared, read-only. Ranked by AI-safety fit. No contact info here.")
-    with st.container(border=True):
-        q = st.text_input("Search name / institution / topic", key="dir_q",
-                          placeholder="e.g. robustness, Stanford, Bengio…")
-        c1, c2 = st.columns(2)
-        countries = sorted([c for c in core["country"].dropna().unique() if c])
-        fc = c1.multiselect("Country", countries, key="dir_c")
-        rel_opts = [r for r in ["core", "adjacent", "off-topic"]
-                    if r in set(core["relevance_label"].dropna())]
-        fr = c2.multiselect("Relevance", rel_opts, key="dir_r")
-        c3, c4 = st.columns(2)
-        max_fit = float(round(core["score"].max() or 0))
-        minfit = c3.slider("Min AI-safety fit", 0.0, max_fit, 0.0, key="dir_fit")
-        max_cit = int(core["citations"].fillna(0).max() or 0)
-        mincit = c4.slider("Min citations", 0, max_cit, 0,
-                           step=max(1, max_cit // 100), key="dir_cit")
-        if st.button("↺ Reset filters", key="dir_reset"):
-            for k in ("dir_q", "dir_c", "dir_r", "dir_fit", "dir_cit"):
-                st.session_state.pop(k, None)
-            st.rerun()
-
+    q = st.text_input("Search name / institution / topic", key="dir_q")
+    c1, c2 = st.columns(2)
+    countries = sorted([c for c in core["country"].dropna().unique() if c])
+    fc = c1.multiselect("Country", countries, key="dir_c")
+    rel_opts = [r for r in ["core", "adjacent", "off-topic"]
+                if r in set(core["relevance_label"].dropna())]
+    fr = c2.multiselect("Relevance", rel_opts, key="dir_r")
     f = core
     if q:
         ql = q.lower()
@@ -301,33 +255,11 @@ with tab_dir:
         f = f[f["country"].isin(fc)]
     if fr:
         f = f[f["relevance_label"].isin(fr)]
-    if minfit > 0:
-        f = f[f["score"] >= minfit]
-    if mincit > 0:
-        f = f[f["citations"].fillna(0) >= mincit]
     f = f.sort_values("score", ascending=False)
-    active = []
-    if q:
-        active.append(f'"{q}"')
-    if fc:
-        active.append(", ".join(fc))
-    if fr:
-        active.append("/".join(fr))
-    if minfit > 0:
-        active.append(f"fit ≥ {minfit:.0f}")
-    if mincit > 0:
-        active.append(f"cites ≥ {mincit:,}")
-    if active:
-        st.caption("Active filters:  " + "   ·   ".join(active))
-    dir_cols = ["score", "name", "institution_name", "country", "relevance_label",
-                "works", "citations", "matched_topics", "orcid"]
-    hc, dc = st.columns([3, 1])
-    hc.caption(f"{len(f):,} match — showing top 500 in the table; download gives all.")
-    dc.download_button("⬇ Download CSV", f[dir_cols].to_csv(index=False).encode("utf-8"),
-                       file_name="ai_safety_researchers.csv", mime="text/csv",
-                       key="dl_dir", width="stretch")
+    st.caption(f"{len(f):,} match — showing top 500")
     st.dataframe(
-        f.head(500)[dir_cols],
+        f.head(500)[["score", "name", "institution_name", "country",
+                     "relevance_label", "works", "citations", "matched_topics", "orcid"]],
         hide_index=True, width="stretch", height=460,
         column_config={
             "score": st.column_config.NumberColumn("AI-safety fit", format="%.1f"),
@@ -390,12 +322,6 @@ with tab_warm:
                     "jurisdiction": st.column_config.TextColumn("Emailing rules", width="medium"),
                     "relevance_label": st.column_config.TextColumn("Relevance", width="small"),
                 })
-            st.download_button(
-                "⬇ Download my warm paths (CSV)",
-                warm[["score", "name", "path", "institution_name", "country",
-                      "jurisdiction", "relevance_label", "matched_topics"]]
-                .to_csv(index=False).encode("utf-8"),
-                file_name="my_warm_paths.csv", mime="text/csv", key="dl_warm")
             st.divider()
             st.caption("Add someone to your outreach queue:")
             pick = st.multiselect("Researchers to track",
@@ -426,11 +352,6 @@ with tab_out:
                 "status": st.column_config.SelectboxColumn("Status", options=STATUSES),
                 "note": st.column_config.TextColumn("Note", width="large"),
             })
-        st.download_button(
-            "⬇ Download my outreach (CSV)",
-            q[["target_name", "status", "note", "updated"]]
-            .to_csv(index=False).encode("utf-8"),
-            file_name="my_outreach.csv", mime="text/csv", key="dl_out")
         c1, c2 = st.columns(2)
         if c1.button("Save changes"):
             now = datetime.datetime.utcnow().isoformat(timespec="seconds")
