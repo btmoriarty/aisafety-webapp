@@ -29,26 +29,21 @@ CORE = os.path.join(HERE, "researchers.db")       # shared, read-only, no PII
 
 
 def _brand():
-    """Custom styling so it doesn't read as a stock Streamlit app."""
+    """Light-touch styling that works in BOTH light and dark mode — only the
+    dark brand banner uses fixed colors (it reads fine on either background);
+    everything else inherits the viewer's theme so dark mode is preserved."""
     st.markdown("""<style>
-      #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"]{display:none !important;}
+      footer{display:none !important;}   /* hide only the 'Made with Streamlit' footer */
       .block-container{padding-top:1.3rem;padding-bottom:2rem;max-width:1240px;}
       .brandbar{background:linear-gradient(100deg,#161A2E,#212747);border-radius:16px;
         padding:17px 24px;margin:0 0 16px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
-        box-shadow:0 14px 34px -22px rgba(20,26,60,.6);}
+        box-shadow:0 14px 34px -22px rgba(20,26,60,.4);}
       .brandbar .bt{font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em;}
       .brandbar .bs{font-size:13.5px;color:#9BA3CC;font-style:italic;}
       .brandbar .bd{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.12em;
         color:#17B3A6;text-transform:uppercase;}
-      .stTabs [data-baseweb="tab-list"]{gap:2px;border-bottom:1px solid #E7EAF3;}
-      .stTabs [data-baseweb="tab"]{font-weight:600;font-size:14px;color:#6B7192;padding:8px 15px;}
-      .stTabs [aria-selected="true"]{color:#0E7C86 !important;}
+      .stTabs [data-baseweb="tab"]{font-weight:600;}
       .stButton button, .stDownloadButton button{border-radius:9px;font-weight:600;}
-      .stDownloadButton button{background:#EAF7F5;color:#0E7C86;border:1px solid #CDE6E2;}
-      .stDownloadButton button:hover{border-color:#17B3A6;color:#0E7C86;}
-      h1,h2,h3{color:#161A2E;letter-spacing:-.01em;}
-      [data-testid="stMetricValue"]{color:#0E7C86;font-weight:800;}
-      [data-testid="stSidebar"]{border-right:1px solid #E7EAF3;}
     </style>""", unsafe_allow_html=True)
 
 
@@ -282,11 +277,18 @@ with tab_dir:
         fr = c2.multiselect("Relevance", rel_opts, key="dir_r")
         c3, c4 = st.columns(2)
         max_fit = float(round(core["score"].max() or 0))
-        minfit = (c3.slider("Min AI-safety fit", 0.0, max_fit, 0.0, key="dir_fit")
+        minfit = (c3.slider(
+                    "Min AI-safety fit", 0.0, max_fit, 0.0, key="dir_fit",
+                    help="Only show researchers whose AI-safety fit is at least this. "
+                         "Fit blends topic relevance, recency, and citations — higher "
+                         "means a stronger, more current match. Leave at 0 to show everyone.")
                   if max_fit > 0 else 0.0)   # slider needs min < max
         max_cit = int(core["citations"].fillna(0).max() or 0)
-        mincit = (c4.slider("Min citations", 0, max_cit, 0,
-                            step=max(1, max_cit // 100), key="dir_cit")
+        mincit = (c4.slider(
+                    "Min citations", 0, max_cit, 0, step=max(1, max_cit // 100),
+                    key="dir_cit",
+                    help="Only show researchers with at least this many total citations "
+                         "(a rough proxy for seniority / influence). Leave at 0 to show everyone.")
                   if max_cit > 0 else 0)
         if st.button("↺ Reset filters", key="dir_reset"):
             for k in ("dir_q", "dir_c", "dir_r", "dir_fit", "dir_cit"):
@@ -343,8 +345,17 @@ with tab_dir:
 # ---- Tab 2: my network (private, per-user) ----
 with tab_net:
     st.subheader("My network")
-    st.caption("Private to you. Export from LinkedIn: Settings → Get a copy of "
-               "your data → Connections. Then upload the CSV here.")
+    st.caption("Private to you — your connections are never shared or scraped.")
+    with st.expander("📇  How to get your LinkedIn connections file"):
+        st.markdown(
+            "1. On LinkedIn, click **Me** (your photo, top-right) → **Settings & Privacy**.\n"
+            "2. Go to **Data privacy** → **Get a copy of your data**.\n"
+            "3. Choose **\"Want something in particular?\"**, tick **Connections**, "
+            "and click **Request archive** (you may need your password).\n"
+            "4. LinkedIn emails you a download link — a Connections-only file is "
+            "usually ready in **~10 minutes**.\n"
+            "5. Download it and unzip if needed to get **Connections.csv**.\n"
+            "6. Upload that file below and click **Import**.")
     up = st.file_uploader("Upload your LinkedIn Connections.csv", type="csv")
     st.caption("Uploading replaces your saved network with the file's contents.")
     if up is not None and st.button("Import"):

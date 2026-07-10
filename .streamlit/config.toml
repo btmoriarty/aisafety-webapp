@@ -1,12 +1,4 @@
-# App theme — the AI-Safety Outreach identity (indigo / teal / amber).
-# This file is safe to commit (no secrets).
-[theme]
-base = "light"
-primaryColor = "#17B3A6"              # teal — buttons, active tabs, accents
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F5F7FB"  # sidebar + panels
-textColor = "#232A45"                 # ink
-font = "sans serif"
-
-[client]
-toolbarMode = "minimal"
+# No custom [theme] here on purpose: a custom theme pins Streamlit to a light
+# base and ignores the viewer's dark-mode preference. Leaving it out lets each
+# viewer use Light / Dark / System (via the ⋮ menu). Accent styling is done in
+# CSS in app.py so it works in both modes.
