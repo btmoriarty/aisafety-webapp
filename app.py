@@ -136,7 +136,7 @@ def load_core():
     df = _read_shared("SELECT * FROM researchers",
                       ["id", "name", "institution_name", "country", "works",
                        "citations", "matched_topics", "score", "orcid",
-                       "relevance_label"])
+                       "relevance_label", "prizes", "prize_match"])
     if df.empty:
         return df
     df["matched_topics"] = df["matched_topics"].fillna("")
@@ -285,8 +285,14 @@ with tab_dir:
                     help="Only show researchers with at least this many total citations "
                          "(a rough proxy for seniority / influence). Leave at 0 to show everyone.")
                   if max_cit > 0 else 0)
+        has_prizes = "prizes" in core.columns
+        prize_only = st.toggle(
+            "🏅 Prize honourees only", key="dir_prize",
+            help="Show only researchers flagged with a major prize (Nobel, Turing, "
+                 "Fields, Abel, Max Planck, ...). Flags matched by name should be "
+                 "verified before outreach.") if has_prizes else False
         if st.button("↺ Reset filters", key="dir_reset"):
-            for k in ("dir_q", "dir_c", "dir_r", "dir_fit", "dir_cit"):
+            for k in ("dir_q", "dir_c", "dir_r", "dir_fit", "dir_cit", "dir_prize"):
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -304,6 +310,8 @@ with tab_dir:
         f = f[f["score"] >= minfit]
     if mincit > 0:
         f = f[f["citations"].fillna(0) >= mincit]
+    if prize_only:
+        f = f[f["prizes"].notna() & (f["prizes"].astype(str).str.strip() != "")]
     f = f.sort_values("score", ascending=False)
     active = []
     if q:
@@ -316,10 +324,14 @@ with tab_dir:
         active.append(f"fit ≥ {minfit:.0f}")
     if mincit > 0:
         active.append(f"cites ≥ {mincit:,}")
+    if prize_only:
+        active.append("🏅 prize honourees")
     if active:
         st.caption("Active filters:  " + "   ·   ".join(active))
     dir_cols = ["score", "name", "institution_name", "country", "relevance_label",
                 "works", "citations", "matched_topics", "orcid"]
+    if has_prizes:
+        dir_cols.insert(2, "prizes")     # show prizes right after the name
     hc, dc = st.columns([3, 1])
     hc.caption(f"{len(f):,} match — showing top 500 in the table; download gives all.")
     dc.download_button("⬇ Download CSV", f[dir_cols].to_csv(index=False).encode("utf-8"),
@@ -330,12 +342,17 @@ with tab_dir:
         hide_index=True, width="stretch", height=460,
         column_config={
             "score": st.column_config.NumberColumn("AI-safety fit", format="%.1f"),
+            "prizes": st.column_config.TextColumn("🏅 Prizes", width="medium"),
             "institution_name": st.column_config.TextColumn("Institution"),
             "country": st.column_config.TextColumn("Ctry", width="small"),
             "relevance_label": st.column_config.TextColumn("Relevance", width="small"),
             "matched_topics": st.column_config.TextColumn("Topics", width="large"),
             "orcid": st.column_config.LinkColumn("ORCID", display_text="↗", width="small"),
         })
+    if prize_only:
+        st.caption("🏅 Prize flags come from Wikidata (living laureates). Matches by "
+                   "shared name — not ORCID — can be same-name collisions, so verify "
+                   "identity before outreach.")
 
 # ---- Tab 2: my network (private, per-user) ----
 with tab_net:
