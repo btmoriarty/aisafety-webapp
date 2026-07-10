@@ -55,22 +55,36 @@ def norm(s):
 
 
 # ---------------------------------------------------------------- identity
-# The lock lives IN the app: each invitee has a private access code (set in
-# Streamlit Secrets under [access_codes], mapping code -> their email). The code
-# proves who they are, so nobody can reach the app — or load someone else's data
-# — without it. Independent of Streamlit's own (unreliable) private-app gate.
-def access_codes():
+# Verified login via Streamlit's native Google OIDC (st.login): the app itself
+# authenticates each viewer, so identity is proven by Google — nobody can claim
+# someone else's email. An allowlist (allowed_emails in Secrets) restricts entry
+# to invited accounts. Locally (no [auth] configured), a dev sign-in is used.
+def _auth_ready():
     try:
-        codes = st.secrets.get("access_codes", None)
-        if codes:
-            return {str(k): str(v).strip().lower() for k, v in dict(codes).items()}
+        return "auth" in st.secrets
+    except Exception:
+        return False
+
+
+def allowed_emails():
+    try:
+        a = st.secrets.get("allowed_emails", None)
+        if a:
+            return {str(x).strip().lower() for x in a}
     except Exception:
         pass
-    return {}
+    return set()
 
 
 def current_user():
-    return st.session_state.get("auth_email")
+    if _auth_ready():
+        try:
+            if st.user.is_logged_in:
+                return (st.user.email or "").strip().lower()
+        except Exception:
+            pass
+        return None
+    return st.session_state.get("dev_user")     # local dev only
 
 
 # ------------------------------------------------------------------- data
@@ -169,28 +183,28 @@ def my_contacts(user):
 
 # ------------------------------------------------------------- auth gate
 user = current_user()
+
+# Logged in via Google but not invited -> block (allowlist enforced when set).
+allow = allowed_emails()
+if _auth_ready() and user and allow and user not in allow:
+    st.title("🛰️ AI-Safety Outreach")
+    st.error(f"**{user}** isn't on the invite list. "
+             "Ask the organizer to add you, then sign in again.")
+    st.button("Sign out", on_click=st.logout)
+    st.stop()
+
 if not user:
     st.title("🛰️ AI-Safety Outreach")
-    codes = access_codes()
-    if codes:
-        st.caption("Private, invite-only. Enter your access code to continue.")
-        with st.form("code_login"):
-            code = st.text_input("Access code", type="password")
-            if st.form_submit_button("Enter"):
-                email = codes.get(code.strip())
-                if email:
-                    st.session_state["auth_email"] = email
-                    st.rerun()
-                else:
-                    st.error("That access code isn't recognized. "
-                             "Check with whoever invited you.")
+    if _auth_ready():
+        st.caption("Private, invite-only. Sign in with your invited Google account.")
+        st.button("Sign in with Google", on_click=st.login, type="primary")
         st.stop()
-    # No codes configured (local dev only): self-declared email.
+    # Local dev only (no [auth] configured): self-declared email.
     st.caption("Dev mode — enter any email to act as that user.")
     with st.form("who"):
         email = st.text_input("Your email", placeholder="you@example.com")
         if st.form_submit_button("Open my workspace") and email.strip():
-            st.session_state["auth_email"] = email.strip().lower()
+            st.session_state["dev_user"] = email.strip().lower()
             st.rerun()
     st.stop()
 
@@ -199,8 +213,10 @@ core = load_core()
 # ------------------------------------------------------------- header
 with st.sidebar:
     st.markdown(f"**Signed in as**\n\n{user}")
-    if st.button("Sign out"):
-        st.session_state.pop("auth_email", None)
+    if _auth_ready():
+        st.button("Sign out", on_click=st.logout)
+    elif st.button("Sign out"):
+        st.session_state.pop("dev_user", None)
         st.rerun()
     st.divider()
     st.caption(f"{len(core):,} researchers in the shared directory.")
