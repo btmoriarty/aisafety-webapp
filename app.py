@@ -34,23 +34,18 @@ def _brand():
     everything else inherits the viewer's theme so dark mode is preserved."""
     st.markdown("""<style>
       footer{display:none !important;}   /* hide only the 'Made with Streamlit' footer */
-      .block-container{padding-top:1.3rem;padding-bottom:2rem;max-width:1240px;}
-      .brandbar{background:linear-gradient(100deg,#161A2E,#212747);border-radius:16px;
-        padding:17px 24px;margin:0 0 16px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
-        box-shadow:0 14px 34px -22px rgba(20,26,60,.4);}
-      .brandbar .bt{font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em;}
-      .brandbar .bs{font-size:13.5px;color:#9BA3CC;font-style:italic;}
-      .brandbar .bd{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.12em;
-        color:#17B3A6;text-transform:uppercase;}
+      .block-container{padding-top:2.6rem;padding-bottom:2rem;max-width:1240px;}
+      .brandbar{background:linear-gradient(100deg,#161A2E,#212747);border-radius:14px;
+        padding:16px 24px;margin:0 0 18px;display:flex;align-items:center;}
+      .brandbar .bt{font-size:20px;font-weight:800;color:#fff;letter-spacing:-.01em;}
       .stTabs [data-baseweb="tab"]{font-weight:600;}
       .stButton button, .stDownloadButton button{border-radius:9px;font-weight:600;}
     </style>""", unsafe_allow_html=True)
 
 
 def _header():
-    st.markdown('<div class="brandbar"><span class="bt">🛰️ AI-Safety Outreach</span>'
-                '<span class="bs">Warm intros to the researchers who matter</span>'
-                '<span class="bd">invite-only</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="brandbar"><span class="bt">AI-Safety Outreach</span></div>',
+                unsafe_allow_html=True)
 
 
 _brand()
@@ -215,14 +210,14 @@ user = current_user()
 # Logged in via Google but not invited -> block (allowlist enforced when set).
 allow = allowed_emails()
 if _auth_ready() and user and allow and user not in allow:
-    st.title("🛰️ AI-Safety Outreach")
+    st.title("AI-Safety Outreach")
     st.error(f"**{user}** isn't on the invite list. "
              "Ask the organizer to add you, then sign in again.")
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
 if not user:
-    st.title("🛰️ AI-Safety Outreach")
+    st.title("AI-Safety Outreach")
     if _auth_ready():
         st.caption("Private, invite-only. Sign in with your invited Google account.")
         st.button("Sign in with Google", on_click=st.login, type="primary")
@@ -251,7 +246,7 @@ with st.sidebar:
     st.caption(f"Storage: {store.backend()}")
 
 if core.empty:
-    st.title("🛰️ AI-Safety Outreach")
+    st.title("AI-Safety Outreach")
     st.info("The researcher directory hasn't been loaded into this deployment yet. "
             "If you're the maintainer, run the loader (`publish_supabase.py`) to "
             "populate it. Otherwise, check back shortly.")
