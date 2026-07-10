@@ -55,34 +55,22 @@ def norm(s):
 
 
 # ---------------------------------------------------------------- identity
-def _email_of(obj):
-    if obj is None:
-        return None
+# The lock lives IN the app: each invitee has a private access code (set in
+# Streamlit Secrets under [access_codes], mapping code -> their email). The code
+# proves who they are, so nobody can reach the app — or load someone else's data
+# — without it. Independent of Streamlit's own (unreliable) private-app gate.
+def access_codes():
     try:
-        e = getattr(obj, "email", None)
-        if e:
-            return e
+        codes = st.secrets.get("access_codes", None)
+        if codes:
+            return {str(k): str(v).strip().lower() for k, v in dict(codes).items()}
     except Exception:
         pass
-    try:
-        if hasattr(obj, "get"):
-            return obj.get("email")
-    except Exception:
-        pass
-    return None
+    return {}
 
 
 def current_user():
-    """Deployed private Streamlit provides the signed-in viewer's email via
-    st.user or st.experimental_user. Locally, fall back to the dev sign-in."""
-    for attr in ("user", "experimental_user"):
-        try:
-            e = _email_of(getattr(st, attr, None))
-            if e:
-                return e
-        except Exception:
-            pass
-    return st.session_state.get("dev_user")
+    return st.session_state.get("auth_email")
 
 
 # ------------------------------------------------------------------- data
@@ -183,13 +171,26 @@ def my_contacts(user):
 user = current_user()
 if not user:
     st.title("🛰️ AI-Safety Outreach")
-    st.caption("Private, invite-only. Enter your email to open your workspace.")
+    codes = access_codes()
+    if codes:
+        st.caption("Private, invite-only. Enter your access code to continue.")
+        with st.form("code_login"):
+            code = st.text_input("Access code", type="password")
+            if st.form_submit_button("Enter"):
+                email = codes.get(code.strip())
+                if email:
+                    st.session_state["auth_email"] = email
+                    st.rerun()
+                else:
+                    st.error("That access code isn't recognized. "
+                             "Check with whoever invited you.")
+        st.stop()
+    # No codes configured (local dev only): self-declared email.
+    st.caption("Dev mode — enter any email to act as that user.")
     with st.form("who"):
         email = st.text_input("Your email", placeholder="you@example.com")
-        st.caption("Use the email you were invited with. Each person's network and "
-                   "outreach are kept separate.")
         if st.form_submit_button("Open my workspace") and email.strip():
-            st.session_state["dev_user"] = email.strip().lower()
+            st.session_state["auth_email"] = email.strip().lower()
             st.rerun()
     st.stop()
 
@@ -199,7 +200,7 @@ core = load_core()
 with st.sidebar:
     st.markdown(f"**Signed in as**\n\n{user}")
     if st.button("Sign out"):
-        st.session_state.pop("dev_user", None)
+        st.session_state.pop("auth_email", None)
         st.rerun()
     st.divider()
     st.caption(f"{len(core):,} researchers in the shared directory.")
