@@ -1,0 +1,12 @@
+# App theme — the AI-Safety Outreach identity (indigo / teal / amber).
+# This file is safe to commit (no secrets).
+[theme]
+base = "light"
+primaryColor = "#17B3A6"              # teal — buttons, active tabs, accents
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FB"  # sidebar + panels
+textColor = "#232A45"                 # ink
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
