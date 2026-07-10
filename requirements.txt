@@ -1,5 +1,9 @@
-streamlit>=1.42
-pandas>=2.0
+# Pinned to a mature, coherent stack. Streamlit Cloud otherwise resolves to
+# bleeding-edge (Python 3.14 + pandas 3.0 + numpy 2.5), which segfaults on start.
+# Pair these with Python 3.13 in the app's Advanced settings.
+streamlit>=1.42,<1.60
+pandas>=2.0,<3
+numpy>=2.0,<2.3
 sqlalchemy>=2.0
 psycopg2-binary>=2.9
 Authlib>=1.3.2
